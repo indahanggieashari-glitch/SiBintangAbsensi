@@ -1058,66 +1058,118 @@
         }
 
         // ================= CORE PROSES ABSENSI =================
-        function prosesAbsensi(nisn) {
-            const siswa = siswaList.find(s => s.nisn === nisn || s.id === nisn);
-            
-            if (!siswa) {
-                playChimeSound('warning');
-                Swal.fire({
-                    icon: 'error',
-                    title: 'QR Tidak Dikenal!',
-                    text: `Siswa NISN [${nisn}] tidak ada dalam database.`,
-                    confirmButtonColor: '#EF476F'
-                });
-                return;
-            }
+        
+async function prosesAbsensi(nisn) {
+  const kode = String(nisn).trim();
 
-            const now = new Date();
-            const jamSekarangStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            const timestamp = `${jamSekarangStr}:${String(now.getSeconds()).padStart(2, '0')} WIB`;
-            
-            let status = "Hadir";
-            if (jamSekarangStr > jamMasukSekolah) {
-                status = "Terlambat";
-            }
+  const siswa = siswaList.find(s =>
+    String(s.nisn).trim() === kode ||
+    String(s.id).trim() === kode
+  );
 
-            const existingIdx = absensiRecords.findIndex(r => r.nisn === siswa.nisn);
-            const newRecord = {
-                nisn: siswa.nisn,
-                nama: siswa.nama,
-                kelas: siswa.kelas,
-                waktu: timestamp,
-                status: status,
-                avatarStyle: siswa.avatarStyle,
-                foto: siswa.foto || ""
-            };
+  if (!siswa) {
+    playChimeSound('warning');
+    Swal.fire({
+      icon: 'error',
+      title: 'QR Tidak Dikenal!',
+      text: `Siswa dengan kode ${kode} tidak ditemukan.`,
+      confirmButtonColor: '#EF476F'
+    });
+    return;
+  }
 
-            if (existingIdx >= 0) {
-                absensiRecords[existingIdx] = newRecord;
-            } else {
-                absensiRecords.unshift(newRecord);
-            }
+  const now = new Date();
+  const jamSekarangStr =
+    `${String(now.getHours()).padStart(2, '0')}:` +
+    `${String(now.getMinutes()).padStart(2, '0')}`;
 
-            localStorage.setItem('absensiRecords', JSON.stringify(absensiRecords));
+  const timestamp =
+    `${jamSekarangStr}:` +
+    `${String(now.getSeconds()).padStart(2, '0')} WIB`;
 
-            playChimeSound('success');
-            confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
+  let status = 'Hadir';
+  if (jamSekarangStr > jamMasukSekolah) {
+    status = 'Terlambat';
+  }
 
-            showLastScanResultCard(newRecord);
+  // Kirim data ke Google Apps Script terlebih dahulu.
+  try {
+    const dataKirim = new URLSearchParams({
+      action: 'attendance',
+      nisn: String(siswa.nisn || siswa.id),
+      status: status
+    });
 
-            Swal.fire({
-                title: `<span class="text-emerald-600 font-extrabold">Hadir! Halo ${siswa.nama.split(' ')[0]} 👋</span>`,
-                html: `Absen tercatat pada <b>${timestamp}</b>.<br><span class="text-xs text-slate-500">Kelas ${siswa.kelas} • Status: <b>${status}</b></span>`,
-                icon: 'success',
-                timer: 2200,
-                showConfirmButton: false,
-                background: '#FFFDF5'
-            });
+    const response = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      body: dataKirim
+    });
 
-            renderTabelAbsensi();
-            updateDashboardStats();
-            renderRecentScanLog();
-        }
+    const hasil = await response.json();
+
+    if (!hasil.sukses) {
+      throw new Error(hasil.pesan || 'Absensi gagal disimpan.');
+    }
+  } catch (error) {
+    console.error('Gagal mengirim absensi:', error);
+
+    Swal.fire({
+      icon: 'error',
+      title: 'Absensi Belum Terverifikasi',
+      text: 'Pengiriman ke Google Sheets gagal atau respons server tidak dapat dibaca. Periksa sheet Absensi sebelum mencoba scan ulang agar tidak terjadi pencatatan ganda.',
+      confirmButtonColor: '#EF476F'
+    });
+    return;
+  }
+
+  // Perbarui tampilan lokal setelah server memberi respons sukses.
+  const newRecord = {
+    nisn: siswa.nisn,
+    nama: siswa.nama,
+    kelas: siswa.kelas,
+    waktu: timestamp,
+    status: status,
+    avatarStyle: siswa.avatarStyle,
+    foto: siswa.foto || ''
+  };
+
+  const existingIdx = absensiRecords.findIndex(
+    r => r.nisn === siswa.nisn
+  );
+
+  if (existingIdx >= 0) {
+    absensiRecords[existingIdx] = newRecord;
+  } else {
+    absensiRecords.unshift(newRecord);
+  }
+
+  localStorage.setItem(
+    'absensiRecords',
+    JSON.stringify(absensiRecords)
+  );
+
+  playChimeSound('success');
+  confetti({
+    particleCount: 50,
+    spread: 60,
+    origin: { y: 0.7 }
+  });
+
+  showLastScanResultCard(newRecord);
+
+  Swal.fire({
+    title: `<span class="text-emerald-600 font-extrabold">Hadir! Halo ${siswa.nama.split(' ')[0]} 👋</span>`,
+    html: `Absen tercatat pada <b>${timestamp}</b>.<br><span class="text-xs text-slate-500">Kelas ${siswa.kelas} • Status: <b>${status}</b></span>`,
+    icon: 'success',
+    timer: 2200,
+    showConfirmButton: false,
+    background: '#FFFDF5'
+  });
+
+  renderTabelAbsensi();
+  updateDashboardStats();
+  renderRecentScanLog();
+}
 
         function showLastScanResultCard(record) {
             document.getElementById('lastScanPlaceholder').classList.add('hidden');
