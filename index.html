@@ -1062,10 +1062,17 @@
 async function prosesAbsensi(nisn) {
   const kode = String(nisn).trim();
 
-  const siswa = siswaList.find(s =>
-    String(s.nisn).trim() === kode ||
-    String(s.id).trim() === kode
+  
+let siswa = siswaList.find(s =>
+  String(s.nisn ?? '').trim() === kode
+);
+
+if (!siswa) {
+  siswa = siswaList.find(s =>
+    String(s.id ?? '').trim() === kode
   );
+}
+
 
   if (!siswa) {
     playChimeSound('warning');
@@ -1095,10 +1102,10 @@ async function prosesAbsensi(nisn) {
   // Kirim data ke Google Apps Script terlebih dahulu.
   try {
     const dataKirim = new URLSearchParams({
-      action: 'attendance',
-      nisn: String(siswa.nisn || siswa.id),
-      status: status
-    });
+  action: 'attendance',
+  nisn: kode,
+  status: status
+});
 
     const response = await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
@@ -1123,15 +1130,17 @@ async function prosesAbsensi(nisn) {
   }
 
   // Perbarui tampilan lokal setelah server memberi respons sukses.
-  const newRecord = {
-    nisn: siswa.nisn,
-    nama: siswa.nama,
-    kelas: siswa.kelas,
-    waktu: timestamp,
-    status: status,
-    avatarStyle: siswa.avatarStyle,
-    foto: siswa.foto || ''
-  };
+  
+const newRecord = {
+  nisn: String(hasil.nisn || kode),
+  nama: hasil.nama,
+  kelas: hasil.kelas,
+  waktu: timestamp,
+  status: status,
+  avatarStyle: siswa.avatarStyle,
+  foto: siswa.foto || ''
+};
+
 
   const existingIdx = absensiRecords.findIndex(
     r => r.nisn === siswa.nisn
